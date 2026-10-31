@@ -22,7 +22,8 @@ All scripts in `submission2/code/` are new files written by the group on top of 
 (the "original" model and scheduler code). Each file carries an `# ADDED` header. The lines that change the native
 noise schedule (beta_t -> beta_t^x) are tagged `# MODIFIED`. They are in `train_ddpm_metfaces.py`
 (`EXPONENT_X`, `build_scheduler_for_run`) and `analyze_schedule.py`. Lines added for the ILVR guidance and the
-float32 zero-noise fix in `run_ddpm_img2img.py` are tagged `# ADDED` individually.
+float32 zero-noise fix in `run_ddpm_img2img.py` are tagged `# ADDED` individually, and the `scheduler.step` call
+that now receives the seeded generator is tagged `# MODIFIED`.
 
 ## Repository structure
 - `submission1/Phase1_Declaration.pdf`: Phase 1 declaration (task, model, dataset, schedule).
@@ -40,7 +41,7 @@ float32 zero-noise fix in `run_ddpm_img2img.py` are tagged `# ADDED` individuall
   - `evaluate_outputs.py`: computes KID/FID to the held-out MetFaces test split and LPIPS to the input photo.
   - `make_figures.py`: builds every report figure and the results table.
   - `make_report.py`: one-page strength-sweep summary (earlier SDEdit analysis).
-- `submission2/report/`: the final report (`.docx` and `.pdf`).
+- `submission2/report/`: `build_report.py` and the final report (`Phase2_Report.docx` and `.pdf`).
 
 ## Environment
 Measured on macOS 15.7 with an Apple M3 Max, using the PyTorch MPS backend (`PYTORCH_ENABLE_MPS_FALLBACK=1`).
@@ -104,24 +105,30 @@ python submission2/code/run_final_eval.py --exp-dir $E --test-dir data/test_face
 
 # 5) Report figures and results table
 python submission2/code/make_figures.py --exp-dir $E --test-dir data/test_faces_ffhq_30
+
+# 6) Report (.docx, numbers read from the result files) and PDF export
+python submission2/report/build_report.py --exp-dir $E
+soffice --headless --convert-to pdf --outdir submission2/report submission2/report/Phase2_Report.docx
 ```
 
-The frozen inference setting is ILVR with strength 0.6 (start timestep t = 590), low-pass factor N = 16,
-50 reverse steps and seed 42. Guidance stops below t = 200.
+The frozen inference setting is ILVR with strength 0.8 (start timestep t = 780), low-pass factor N = 16,
+50 reverse steps and seed 42. Guidance stops below t = 200. All sampling noise (the initial noise, the
+per-step DDPM posterior noise and the ILVR reference noise) comes from one generator seeded with `--seed`,
+so re-running a command reproduces the same images.
 
 Single-run inference (the same command for each run, changing only `--model-path` and `--run-name`):
 ```bash
 # Run 0
 python submission2/code/run_ddpm_img2img.py --model-path google/ddpm-celebahq-256 --input-dir data/test_faces_ffhq_30 \
-  --output-dir $E/final_eval/test_ilvr --run-name 0 --num-steps 50 --strength 0.6 --method ilvr --ilvr-factor 16 \
+  --output-dir $E/final_eval/test_ilvr --run-name 0 --num-steps 50 --strength 0.8 --method ilvr --ilvr-factor 16 \
   --seed 42 --save-trajectory
 # Run A
 python submission2/code/run_ddpm_img2img.py --model-path $E/train/run_A_final --input-dir data/test_faces_ffhq_30 \
-  --output-dir $E/final_eval/test_ilvr --run-name A --num-steps 50 --strength 0.6 --method ilvr --ilvr-factor 16 \
+  --output-dir $E/final_eval/test_ilvr --run-name A --num-steps 50 --strength 0.8 --method ilvr --ilvr-factor 16 \
   --seed 42 --save-trajectory
 # Run B
 python submission2/code/run_ddpm_img2img.py --model-path $E/train/run_B_final --input-dir data/test_faces_ffhq_30 \
-  --output-dir $E/final_eval/test_ilvr --run-name B --num-steps 50 --strength 0.6 --method ilvr --ilvr-factor 16 \
+  --output-dir $E/final_eval/test_ilvr --run-name B --num-steps 50 --strength 0.8 --method ilvr --ilvr-factor 16 \
   --seed 42 --save-trajectory
 ```
 

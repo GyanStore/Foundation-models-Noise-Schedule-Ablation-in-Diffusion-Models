@@ -94,7 +94,7 @@ def sdedit_sample(
             image.save(trajectory_dir / f"{image_stem}_step_{i:03d}_t_{int(t.item()):04d}.png")
 
         pred_noise = unet(xt, t).sample
-        xt = scheduler.step(pred_noise, t, xt).prev_sample
+        xt = scheduler.step(pred_noise, t, xt, generator=generator).prev_sample  # MODIFIED: seeded posterior noise (reproducible)
 
         if method == "ilvr" and i + 1 < len(timesteps):  # ADDED: ILVR guidance
             t_prev = timesteps[i + 1]  # ADDED
