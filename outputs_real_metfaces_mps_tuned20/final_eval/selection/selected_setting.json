@@ -1,0 +1,13 @@
+{
+  "method": "ilvr",
+  "strength": 0.6,
+  "ilvr_factor": 16,
+  "num_steps": 50,
+  "seed": 42,
+  "max_lpips": 0.45,
+  "constraint_met": true,
+  "dev_kid": 0.07209427654743195,
+  "dev_lpips": 0.29369866847991943,
+  "selected_on": "data/dev_faces_ffhq_20",
+  "model": "outputs_real_metfaces_mps_tuned20/train/run_A_final"
+}

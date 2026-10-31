@@ -1,3 +1,6 @@
+# ADDED: this whole file is new code written by the group. The model and scheduler come unchanged from diffusers;
+# the schedule used at inference is whatever the loaded checkpoint saved (beta_t for Run 0/A, beta_t^x for Run B).
+# Lines added for the ILVR guidance and the zero-noise timestep fix are tagged # ADDED individually.
 from __future__ import annotations
 
 import argparse
@@ -5,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import torch
+import torch.nn.functional as F  # ADDED: ILVR low-pass filter
 from PIL import Image
 from torchvision import transforms
 from tqdm.auto import tqdm
@@ -39,6 +43,13 @@ def step_indices(n: int, k: int = 5) -> set[int]:
     return {int(round(x)) for x in np.linspace(0, n - 1, k)}
 
 
+def lowpass(x: torch.Tensor, factor: int) -> torch.Tensor:  # ADDED
+    """ILVR low-pass filter phi_N: downsample by `factor`, then upsample back."""  # ADDED
+    h, w = x.shape[-2:]  # ADDED
+    small = F.interpolate(x, size=(h // factor, w // factor), mode="area")  # ADDED
+    return F.interpolate(small, size=(h, w), mode="bilinear", align_corners=False)  # ADDED
+
+
 @torch.no_grad()
 def sdedit_sample(
     pipe: DDPMPipeline,
@@ -48,14 +59,28 @@ def sdedit_sample(
     generator: torch.Generator,
     trajectory_dir: Path | None,
     image_stem: str,
+    method: str = "sdedit",  # ADDED
+    ilvr_factor: int = 16,  # ADDED
+    ilvr_stop_t: int = 200,  # ADDED
 ) -> torch.Tensor:
+    """SDEdit (Meng et al. 2022), optionally with ILVR guidance (Choi et al. 2021).
+
+    ILVR: after each reverse step to t_prev >= ilvr_stop_t, replace the low frequencies of the sample
+    with those of the input noised to the same level: x <- x - phi(x) + phi(q(y | t_prev)).
+    This keeps pose and face layout from the photo while the model repaints texture and detail.
+    """
     unet = pipe.unet
     scheduler = pipe.scheduler
     device = next(unet.parameters()).device
 
     scheduler.set_timesteps(num_steps, device=device)
-    start_idx = max(0, min(num_steps - 1, int(round(strength * (num_steps - 1)))))
+    # Standard img2img convention: strength=1.0 starts from pure noise, 0.0 leaves the input untouched.
+    start_idx = min(num_steps - 1, int(round(num_steps * (1.0 - strength))))
     timesteps = scheduler.timesteps[start_idx:]
+    # With very small betas (e.g. beta_t^2) 1 - alpha_bar_t underflows to exactly 0 in float32 for the
+    # earliest timesteps; x_t is already clean there and scheduler.step would divide by zero (NaN).
+    noise_level = 1.0 - scheduler.alphas_cumprod.to(timesteps.device)[timesteps]  # ADDED: beta^x underflow fix
+    timesteps = timesteps[noise_level > 0]  # ADDED
 
     x0 = input_tensor.to(device)
     noise = torch.randn(x0.shape, generator=generator, device=device, dtype=x0.dtype)
@@ -71,6 +96,13 @@ def sdedit_sample(
         pred_noise = unet(xt, t).sample
         xt = scheduler.step(pred_noise, t, xt).prev_sample
 
+        if method == "ilvr" and i + 1 < len(timesteps):  # ADDED: ILVR guidance
+            t_prev = timesteps[i + 1]  # ADDED
+            if int(t_prev) >= ilvr_stop_t:  # ADDED
+                y_noise = torch.randn(x0.shape, generator=generator, device=device, dtype=x0.dtype)  # ADDED
+                y_prev = scheduler.add_noise(x0, y_noise, t_prev.unsqueeze(0))  # ADDED
+                xt = xt - lowpass(xt, ilvr_factor) + lowpass(y_prev, ilvr_factor)  # ADDED
+
     return xt
 
 
@@ -85,6 +117,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image-size", type=int, default=256)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--save-trajectory", action="store_true")
+    parser.add_argument("--method", choices=["sdedit", "ilvr"], default="sdedit")  # ADDED
+    parser.add_argument("--ilvr-factor", type=int, default=16, help="ILVR downsampling factor N")  # ADDED
+    parser.add_argument("--ilvr-stop-t", type=int, default=200, help="no ILVR guidance below this timestep")  # ADDED
     args = parser.parse_args()
 
     if args.num_steps < 2:
@@ -98,7 +133,12 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     generator = torch.Generator(device=device).manual_seed(args.seed)
 
     pipe = DDPMPipeline.from_pretrained(args.model_path)
@@ -132,6 +172,9 @@ def main() -> None:
             generator=generator,
             trajectory_dir=traj_dir,
             image_stem=path.stem,
+            method=args.method,  # ADDED
+            ilvr_factor=args.ilvr_factor,  # ADDED
+            ilvr_stop_t=args.ilvr_stop_t,  # ADDED
         )
         to_pil(out).save(out_dir / f"{path.stem}_{args.run_name}.png")
 

@@ -1,3 +1,5 @@
+# ADDED: this whole file is new code written by the group (orchestrates analyze -> train A/B -> infer 0/A/B).
+# No line here changes the noise schedule; the beta_t -> beta_t^x change is in train_ddpm_metfaces.py (# MODIFIED).
 from __future__ import annotations
 
 import argparse
@@ -30,6 +32,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-num-images", type=int, default=3)
     parser.add_argument("--checkpoint-num-steps", type=int, default=100)
     parser.add_argument("--checkpoint-strength", type=float, default=0.60)
+    parser.add_argument("--lr-scheduler", choices=["constant", "cosine"], default="constant")
+    parser.add_argument("--lr-warmup-steps", type=int, default=0)
+    parser.add_argument("--grad-accum-steps", type=int, default=1)
+    parser.add_argument("--grad-clip", type=float, default=0.0)
+    parser.add_argument("--ema-decay", type=float, default=0.0)
+    parser.add_argument("--hflip", action="store_true")
+    parser.add_argument("--val-repeats", type=int, default=1)
+    parser.add_argument("--infer-checkpoint", choices=["final", "best"], default="final")
+    parser.add_argument("--skip-schedule", action="store_true")
     return parser.parse_args()
 
 
@@ -48,14 +59,24 @@ def main() -> None:
 
     py = sys.executable
 
-    run_cmd([
-        py,
-        str(schedule_script),
-        "--model-id",
-        args.model_id,
-        "--output-dir",
-        str(schedule_out),
-    ])
+    if not args.skip_schedule:
+        run_cmd([
+            py,
+            str(schedule_script),
+            "--model-id",
+            args.model_id,
+            "--output-dir",
+            str(schedule_out),
+        ])
+
+    extra_train = [
+        "--lr-scheduler", args.lr_scheduler,
+        "--lr-warmup-steps", str(args.lr_warmup_steps),
+        "--grad-accum-steps", str(args.grad_accum_steps),
+        "--grad-clip", str(args.grad_clip),
+        "--ema-decay", str(args.ema_decay),
+        "--val-repeats", str(args.val_repeats),
+    ] + (["--hflip"] if args.hflip else [])
 
     for run_name in ["A", "B"]:
         run_cmd([
@@ -91,7 +112,7 @@ def main() -> None:
             str(args.checkpoint_num_steps),
             "--checkpoint-strength",
             str(args.checkpoint_strength),
-        ])
+        ] + extra_train)
 
     run_cmd([
         py,
@@ -120,7 +141,7 @@ def main() -> None:
             py,
             str(infer_script),
             "--model-path",
-            str(train_out / f"run_{run_name}_final"),
+            str(train_out / f"run_{run_name}_{args.infer_checkpoint}"),
             "--input-dir",
             str(args.input_dir),
             "--output-dir",

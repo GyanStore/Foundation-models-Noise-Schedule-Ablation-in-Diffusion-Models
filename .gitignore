@@ -1,0 +1,14 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Datasets (MetFaces is CC BY-NC 2.0; FFHQ/LFW photos are downloaded by the scripts)
+data/
+
+# Experiment outputs: model weights and generated images are too large for git.
+# Small logs, configs and metric files are force-added selectively.
+outputs_*/
+outputs_*.log
+*.safetensors
+*.bin
+*.pt

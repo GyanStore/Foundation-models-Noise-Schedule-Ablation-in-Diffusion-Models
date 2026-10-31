@@ -1,0 +1,14 @@
+Run A (outputs_real_metfaces_mps_tuned20/train/run_A_final): betas[0]=1.000e-04 betas[-1]=2.000e-02 max|diff vs beta_t|=0.000e+00 max|diff vs beta_t^2.00|=1.960e-02 -> matches expected schedule: True
+Run B (outputs_real_metfaces_mps_tuned20/train/run_B_final): betas[0]=1.000e-08 betas[-1]=4.000e-04 max|diff vs beta_t|=1.960e-02 max|diff vs beta_t^2.00|=0.000e+00 -> matches expected schedule: True
+{
+  "Run A: beta_t": {
+    "alpha_bar_T": 4.0358306793136145e-05,
+    "log_snr_T": -10.117672956835902,
+    "log_snr_1": 9.210240392240502
+  },
+  "Run B: beta_t^2.00": {
+    "alpha_bar_T": 0.8745152891599206,
+    "log_snr_T": 1.9414858524469267,
+    "log_snr_1": 18.420680828847683
+  }
+}
